@@ -1,12 +1,3 @@
 .DS_Store
 .vscode
 node_packages
-public/images
-!public/images/P1090335.jpg
-!public/images/P1090369.jpg
-!public/images/P1090385.jpg
-!public/images/P1180023.jpg
-!public/images/P1180039.jpg
-!public/images/P1180040.jpg
-!public/images/P1180057.jpg
-!public/images/P1180066.jpg
