@@ -16,9 +16,7 @@ Special thanks to [Krzysztof Lis](https://people.epfl.ch/krzysztof.lis/?lang=en)
 
 ---
 
-## Links to the repos:
-
-### 1. [logoDetector](https://github.com/TugdualKerjan/logoClassify.git) The resulting bot from this project.
+## Links to other repos:
 
 ### 1. [autoCutter](https://github.com/TugdualKerjan/autoCutter) A bot that cuts out objects of images using Detectron2
 
