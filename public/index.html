@@ -1,0 +1,967 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8">
+
+	<title>Sticker detection</title>
+
+	<meta name="description" content="Semester project">
+	<meta name="author" content="Tugdual Kerjan">
+
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+	<link rel="stylesheet" href="dist/reset.css">
+	<link rel="stylesheet" href="dist/reveal.css">
+	<link rel="stylesheet" href="dist/theme/black.css" id="theme">
+
+	<link rel="stylesheet" href="plugin/highlight/monokai.css" id="highlight-theme">
+</head>
+
+<body>
+
+	<div class="reveal">
+
+		<!-- Any section element inside of this container is displayed as a slide -->
+		<div class="slides">
+			<section>
+				<h1 class="r-fit-text"> Sticker Hunt with Computer vision</h2>
+				<h3>Semester project report</h3>
+				<p>By Tugdual Kerjan</p>
+				<p>Supervised by Krzysztof Lis and Dr. Mathieu Salzmann</p>
+			</section>
+			<section>
+				<section>
+					<h2>Acknowledgements</h2>
+				</section>
+				<section>
+					<img data-src="images/krzys.jpg" style="height: 70vh">
+				</section>
+			</section>
+			<section>
+				<section>
+					<h3>A little history</h3>
+				</section>
+				<section>
+					<img data-src="images/dino.jpg" style="object-fit: contain; height: 50vh">
+				</section>
+				<section>
+					<h5>Hunt the stickers and get a prize!</h5>
+				</section>
+				<section>
+					<img data-src="images/heroku.png" style="object-fit: contain; height: 50vh">
+				</section>
+				<section>
+					<img data-src="images/azure.png" style="object-fit: contain; height: 50vh">
+				</section>
+				<section>
+					<img data-src="images/sheets.png" style="object-fit: contain; height: 50vh">
+				</section>
+				<section>
+					<img data-src="images/resultdino.png" style="object-fit: contain; height: 50vh">
+				</section>
+			</section>
+			<section>
+				<h3>Requirements</h3>
+				<ul>
+					<li>Sticker detection</li>
+					<li>App development</li>
+					<li>Sticker classification</li>
+				</ul>
+			</section>
+			<section>
+				<section>
+					<h2>Sticker detection</h2>
+				</section>
+				<section>
+					<img data-src="images/frust.png" style="object-fit: cover; height: 50vh">
+				</section>
+				<section>
+					<img data-src="images/detect.png">
+				</section>
+				<section>
+					<pre>
+						<code class="terminal" data-trim data-line-numbers="1|3|5|7|9" contenteditable style="font-size: 18px;">
+							sudo apt install conda
+							
+							conda create -n myenv
+							
+							conda activate myenv
+							
+							pip3 install torch torchvision detectron2 opencv-python
+							
+							python3 demo.py
+						</code>
+					</pre>
+				</section>
+				<section>
+					<div class="r-stack">
+						<img class="fragment" src="images/input.jpg">
+						<img class="fragment" src="images/output_faster_rcnn_R_101_FPN_3x.jpg">
+						<img class="fragment" src="images/output_S_mask_rcnn_R_50_FPN_3x.jpg">
+						<img class="fragment" src="images/output_panoptic_fpn_R_50_3x.jpg">
+					</div>
+				</section>
+				<section>
+					<pre>
+						<code class="terminal" data-trim data-line-numbers="1|3|5|7|9|11" contenteditable style="font-size: 18px;">
+							ssh kerjan@izar.epfl.ch
+							
+							Sinteract -t 01:00:00 -c 10 -m 20G -p gpu
+							
+							module load gcc/8.4.0-cuda cuda/10.2.89
+							
+							module load python/3.7.7
+							
+							source detect/bin/activate
+							
+							pip3 install -r requirements.txt
+						</code>
+					</pre>
+				</section>
+				<section>
+					<h3>Finding something to train the model with</h3>
+					<iframe data-src="images/FlickrLogos.html" style="height: 50vh; width: 90vw"></iframe>
+				</section>
+				<section>
+					<h1 class="fragment">🤔</h1>
+					<h1 class="fragment">🍺</h1>
+				</section>
+				<section>
+					<h3>Training the model</h3>
+					<pre>
+						<code class="python" data-trim data-line-numbers="|23|27|30|36|39-42|53-58|60|64-66|71|73-85|90" contenteditable style="font-size: 18px;">
+							import torch
+							import detectron2
+							import pycocotools
+							from detectron2.utils.logger import setup_logger
+							setup_logger()
+							
+							# import some common libraries
+							import numpy as np
+							import os, json, cv2, random
+							
+							# import some common detectron2 utilities
+							from detectron2 import model_zoo
+							from detectron2.engine import DefaultPredictor
+							from detectron2.config import get_cfg
+							from detectron2.utils.visualizer import Visualizer
+							from detectron2.data import MetadataCatalog, DatasetCatalog
+							from detectron2.structures import BoxMode
+							from detectron2.engine import DefaultTrainer
+							from detectron2.utils.visualizer import ColorMode
+							
+							
+							path = "Flick/FlickrLogos-v2/"
+							classes = ["adidas","aldi","apple","becks","bmw","carlsberg","chimay","cocacola","corona","dhl","erdinger","esso","fedex","ferrari","ford","fosters","google","guiness","heineken","hp","milka","nvidia","paulaner","pepsi","rittersport","shell","singha","starbucks","stellaartois","texaco","tsingtao","ups"]
+							
+							# Mention there is a bitmask and not polygon
+							
+							def get_logos(directory):
+								dataset_dicts = []
+								
+								for line in open(directory, "r"):
+									imgclass, imgname = line.split(",")
+									imgname = imgname[:-1] #remove extra \n
+									imgclass = imgclass.lower() #Lower case HP
+									record = {}
+									
+									filepath = os.path.join(path,"classes/jpg/",imgclass,imgname)
+										height, width = cv2.imread(filepath).shape[:2]
+										
+										record["file_name"] = filepath
+										record["image_id"] = imgname[:-4] #Remove the .jpg
+										record["height"] = height
+										record["width"] = width
+										
+										if(imgclass == "no-logo"):
+										record["annotations"] = []
+										else:
+										filepathmask = os.path.join(path,"classes/masks/",imgclass,imgname)
+										
+										bbox = open(filepathmask+".bboxes.txt", "r").readlines()[1].split(" ")
+										
+										b_a = np.asarray(cv2.imread(filepathmask+".mask.0.png")[:, :, 0] == 255, dtype=bool, order='F') # Already in grayscale, change to binary
+										# Only one object per image for this one
+										record["annotations"] = [{
+											"bbox": [int(x) for x in bbox],
+											"bbox_mode": BoxMode.XYWH_ABS,
+											"segmentation": pycocotools.mask.encode(b_a), #cfg.INPUT.MASK_FORMAT must be set to bitmask if using the default data loader with such format.
+											"category_id": classes.index(imgclass),
+										}]
+										
+									dataset_dicts.append(record)
+								return dataset_dicts # Returns a dict of all images with their respective descriptions
+								
+								
+							for d in ["train", "test"]:
+								DatasetCatalog.register("logo_" + d, lambda d=d: get_logos(path + d + "set.txt"))
+								MetadataCatalog.get("logo_" + d).set(thing_classes=classes)
+								
+							logo_metadata = MetadataCatalog.get("logo_train")
+							dataset_dicts = DatasetCatalog.get("logo_train")
+							
+							model = "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+							
+							cfg = get_cfg()
+							cfg.merge_from_file(model_zoo.get_config_file(model))
+							cfg.INPUT.MASK_FORMAT = 'bitmask'
+							cfg.DATASETS.TRAIN = ("logo_train",) # Train with the logos dataset
+							cfg.DATASETS.TEST = () # Train with the logos dataset
+							cfg.MODEL.DEVICE = "cpu"
+							
+							cfg.DATALOADER.NUM_WORKERS = 2
+							cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(model)  # Let training initialize from model zoo
+							cfg.SOLVER.IMS_PER_BATCH = 1
+							cfg.SOLVER.BASE_LR = 0.000025 # pick a good LR
+							cfg.SOLVER.MAX_ITER = 4000
+							cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(classes)  # only has one class (ballon). (see https://detectron2.readthedocs.io/tutorials/datasets.html#update-the-config-for-new-datasets)
+							
+							os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+							trainer = DefaultTrainer(cfg)
+							trainer.resume_or_load(resume=False)
+							trainer.train()
+						</code>
+					</pre>
+				</section>
+				<section>
+					<h3>Results</h3>
+					<img src="images/output_32_faster_rcnn_R_50_FPN_3x.jpg" style="object-fit: cover; height: 50vh">
+				</section>
+				<section>
+					<h3>A simple change</h3>
+					<pre>
+						<code class="python" data-trim data-line-numbers="|83" contenteditable style="font-size: 18px;">
+							import torch
+							import detectron2
+							import pycocotools
+							from detectron2.utils.logger import setup_logger
+							setup_logger()
+							
+							# import some common libraries
+							import numpy as np
+							import os, json, cv2, random
+							
+							# import some common detectron2 utilities
+							from detectron2 import model_zoo
+							from detectron2.engine import DefaultPredictor
+							from detectron2.config import get_cfg
+							from detectron2.utils.visualizer import Visualizer
+							from detectron2.data import MetadataCatalog, DatasetCatalog
+							from detectron2.structures import BoxMode
+							from detectron2.engine import DefaultTrainer
+							from detectron2.utils.visualizer import ColorMode
+							
+							
+							path = "Flick/FlickrLogos-v2/"
+							classes = ["adidas","aldi","apple","becks","bmw","carlsberg","chimay","cocacola","corona","dhl","erdinger","esso","fedex","ferrari","ford","fosters","google","guiness","heineken","hp","milka","nvidia","paulaner","pepsi","rittersport","shell","singha","starbucks","stellaartois","texaco","tsingtao","ups"]
+							
+							# Mention there is a bitmask and not polygon
+							
+							def get_logos(directory):
+							dataset_dicts = []
+							
+							for line in open(directory, "r"):
+								imgclass, imgname = line.split(",")
+								imgname = imgname[:-1] #remove extra \n
+								imgclass = imgclass.lower() #Lower case HP
+								record = {}
+								
+								filepath = os.path.join(path,"classes/jpg/",imgclass,imgname)
+									height, width = cv2.imread(filepath).shape[:2]
+									
+									record["file_name"] = filepath
+									record["image_id"] = imgname[:-4] #Remove the .jpg
+									record["height"] = height
+									record["width"] = width
+									
+									if(imgclass == "no-logo"):
+									record["annotations"] = []
+									else:
+									filepathmask = os.path.join(path,"classes/masks/",imgclass,imgname)
+									
+									bbox = open(filepathmask+".bboxes.txt", "r").readlines()[1].split(" ")
+									
+									b_a = np.asarray(cv2.imread(filepathmask+".mask.0.png")[:, :, 0] == 255, dtype=bool, order='F') # Already in grayscale, change to binary
+									# Only one object per image for this one
+									record["annotations"] = [{
+										"bbox": [int(x) for x in bbox],
+										"bbox_mode": BoxMode.XYWH_ABS,
+										"segmentation": pycocotools.mask.encode(b_a), #cfg.INPUT.MASK_FORMAT must be set to bitmask if using the default data loader with such format.
+										"category_id": classes.index(imgclass),
+									}]
+									
+								dataset_dicts.append(record)
+							return dataset_dicts # Returns a dict of all images with their respective descriptions
+								
+								
+							for d in ["train", "test"]:
+								DatasetCatalog.register("logo_" + d, lambda d=d: get_logos(path + d + "set.txt"))
+								MetadataCatalog.get("logo_" + d).set(thing_classes=classes)
+								
+							logo_metadata = MetadataCatalog.get("logo_train")
+							dataset_dicts = DatasetCatalog.get("logo_train")
+							
+							model = "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+							
+							cfg = get_cfg()
+							cfg.merge_from_file(model_zoo.get_config_file(model))
+							cfg.INPUT.MASK_FORMAT = 'bitmask'
+							cfg.DATASETS.TRAIN = ("logo_train",) # Train with the logos dataset
+							cfg.DATASETS.TEST = () # Train with the logos dataset
+							cfg.MODEL.DEVICE = "cpu"
+							
+							cfg.DATALOADER.NUM_WORKERS = 2
+							cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(model)  # Let training initialize from model zoo
+							cfg.SOLVER.IMS_PER_BATCH = 1
+							cfg.SOLVER.BASE_LR = 0.000025  # pick a good LR
+							cfg.SOLVER.MAX_ITER = 4000
+							cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(classes)  # only has one class (ballon). (see https://detectron2.readthedocs.io/tutorials/datasets.html#update-the-config-for-new-datasets)
+							
+							os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+							trainer = DefaultTrainer(cfg)
+							trainer.resume_or_load(resume=False)
+							trainer.train()
+						</code>
+					</pre>
+				</section>
+				<section>
+					<h3>Better results</h3>
+					<img src="images/output_1_mask_rcnn_R_50_FPN_3x2.jpg" style="object-fit: cover; height: 50vh;">
+				</section>
+			</section>
+
+			<section>
+				<section>
+					<h2>App development</h2>
+				</section>
+				<section>
+					<h3 class="fragment">
+						<span class="fragment highlight-red">iPhone / Android</h3>
+					<h3 class="fragment">
+						<span class="fragment highlight-red">Web</h3>
+					<h3 class="fragment">
+						<span class="fragment highlight-green">Telegram</h3>
+				</section>
+				<section>
+					<img src="images/createbot.png" style="object-fit: contain; height: 70vh;">
+				</section>
+				<section>
+					<pre>
+						<code class="terminal" data-trim contenteditable style="font-size: 18px;">
+							pip3 install python-telegram-bot numpy
+						</code>
+					</pre>
+				</section>
+				<section>
+					<pre>
+						<code class="python" data-trim data-line-numbers="|20|24|27|29" contenteditable style="font-size: 18px;">
+							import cv2
+							from logodetect import predict
+
+							import telegram
+							from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+							from telegram.ext import CommandHandler, MessageHandler, Updater, Filters, CallbackQueryHandler
+							from telegram.error import NetworkError, Unauthorized
+							import numpy as np
+							from io import BytesIO
+							updater = Updater(token='1783792051:AAGgPYOeZkvdKpPCOwE50XwWqtruCymvfGc', use_context=True)
+
+							def main():
+								dispatcher = updater.dispatcher
+
+								dispatcher.add_handler(CommandHandler('start', start))
+								dispatcher.add_handler(MessageHandler(Filters.photo, receive_images))
+
+								updater.start_polling()
+
+							def receive_images(update, context):
+								user_id = int(update.message.from_user['id'])
+								username = update.message.from_user['username']
+
+								decode_img = cv2.imdecode(np.frombuffer(BytesIO(context.bot.getFile(update.message.photo[-1].file_id).download_as_bytearray()).getbuffer(), np.uint8), -1)
+								context.bot.sendMessage(update.effective_chat.id, "Preparing glasses and brains...")
+
+								image = predict(decode_img)
+								buffer = cv2.imencode(".png", image)[1].tobytes()
+								context.bot.sendPhoto(update.effective_chat.id, buffer)
+
+							def start(update, context):
+								context.bot.send_message(chat_id=update.effective_chat.id,
+														text="""Hey! Send me a message with a picture and I'll cut it out for you!""")
+
+
+							if __name__ == '__main__':
+								main()
+						</code>
+					</pre>
+				</section>
+				<section>
+					<img src="images/club.jpg" style="object-fit: contain; height: 70vh">
+				</section>
+			</section>
+			<section>
+				<section>
+					<h2>Sticker Classification</h2>
+				</section>
+				<section>
+					<h3>Few Shot</h3>
+					<ul>
+						<li class="fragment"><span style="color: red">n</span> images</li>
+						<li class="fragment"><span style="color: green">k</span> classes</li>
+						<li class="fragment"><span style="color: orange">q</span> query</li>
+					</ul>
+				</section>
+				<section>
+					<h3>Datasets</h3>
+					<table>
+						<tr class="fragment">
+							<th>Omniglot</th>
+							<th>miniImageNet</th>
+						</tr>
+						<tr class="fragment">
+							<td>
+								<img src="images/omni.png" style="object-fit: contain; height: 30vh">
+							</td>
+							<td>
+								<img src="images/mini.png" style="object-fit: contain; height: 30vh">
+							</td>
+						</tr>
+						<tr class="fragment">
+							<td>32000 Images</td>
+							<td>60000 Images</td>
+						</tr>
+					</table>
+				</section>
+				<section>
+					<img src="images/sign.png" style="object-fit: contain; height: 50vh">
+				</section>
+				<section>
+					<img src="images/fewshot.png" style="object-fit: contain; height: 50vh">
+				</section>
+				<section>
+					<h1>🧠</h1>
+				</section>
+				<section>
+					<img src="images/ideal.jpg" style="object-fit: contain; height: 50vh">
+				</section>
+				<section>
+					<h3>Great help</h3>
+					<iframe data-src="images/few-shot.html" style="height: 50vh; width: 90vw"></iframe>
+				</section>
+				<section>
+					<h3>Training the model</h3>
+				</section>
+				<section>
+					<pre>
+						<code class="terminal" data-trim contenteditable style="font-size: 18px;">
+							<script type="text/template">
+								48000it [00:00, 252398.08it/s]
+								12000it [00:00, 308378.25it/s]
+								Epoch 1:   0%|          | 0/60 [00:00<?, ?it/s]Indexing background...
+								Indexing evaluation...
+								Training Matching Network on miniImageNet...
+								Begin training...
+								Epoch 1: 100%|██████████| 60/60 [00:37<00:00,  1.59it/s, loss=13.2, categorical_accuracy=0.277]
+								Epoch 2: 100%|██████████| 60/60 [00:35<00:00,  1.67it/s, loss=13.3, categorical_accuracy=0.269]
+								Epoch 3: 100%|██████████| 60/60 [00:35<00:00,  1.70it/s, loss=13.1, categorical_accuracy=0.278]
+								Epoch 4: 100%|██████████| 60/60 [00:34<00:00,  1.73it/s, loss=13.2, categorical_accuracy=0.274]
+								Epoch 5: 100%|██████████| 60/60 [00:34<00:00,  1.74it/s, loss=13, categorical_accuracy=0.286]  
+								Epoch 6: 100%|██████████| 60/60 [00:34<00:00,  1.76it/s, loss=13, categorical_accuracy=0.284]  
+								Epoch 7: 100%|██████████| 60/60 [00:33<00:00,  1.78it/s, loss=13.5, categorical_accuracy=0.263]
+								Epoch 8: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=13.2, categorical_accuracy=0.277]
+								Epoch 9: 100%|██████████| 60/60 [00:33<00:00,  1.80it/s, loss=13.4, categorical_accuracy=0.259]
+								Epoch 10: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=13.4, categorical_accuracy=0.258]
+								Epoch 11: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=13, categorical_accuracy=0.28]   
+								Epoch 12: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=11.5, categorical_accuracy=0.253]
+								Epoch 13: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=8.37, categorical_accuracy=0.271]
+								Epoch 14: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=7.06, categorical_accuracy=0.259]
+								Epoch 15: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=6.74, categorical_accuracy=0.249]
+								Epoch 16: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=6.54, categorical_accuracy=0.246]
+								Epoch 17: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=5.75, categorical_accuracy=0.25] 
+								Epoch 18: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=6.29, categorical_accuracy=0.26]  
+								Epoch 19: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=6.07, categorical_accuracy=0.258]
+								Epoch 20: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=5.53, categorical_accuracy=0.267]
+								Epoch 21: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=3.8, categorical_accuracy=0.265] 
+								Epoch 22: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=4.6, categorical_accuracy=0.264] 
+								Epoch 23: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=5.21, categorical_accuracy=0.265]
+								Epoch 24: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=4.35, categorical_accuracy=0.272]
+								Epoch 25: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=3.94, categorical_accuracy=0.279]
+								Epoch 26: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=3.5, categorical_accuracy=0.281] 
+								Epoch 27: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=3.76, categorical_accuracy=0.293]
+								Epoch 28: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=3.54, categorical_accuracy=0.301]
+								Epoch 29: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=3.73, categorical_accuracy=0.308] 
+								Epoch 30: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=3.98, categorical_accuracy=0.303]
+								Epoch 31: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=3.56, categorical_accuracy=0.306]
+								Epoch 32: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.67, categorical_accuracy=0.308]
+								Epoch 33: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=3.67, categorical_accuracy=0.309]
+								Epoch 34: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=3.32, categorical_accuracy=0.304]
+								Epoch 35: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=2.98, categorical_accuracy=0.295]
+								Epoch 36: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=4.05, categorical_accuracy=0.278]
+								Epoch 37: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=3.15, categorical_accuracy=0.298]
+								Epoch 38: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=3.62, categorical_accuracy=0.29] 
+								Epoch 39: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=3.28, categorical_accuracy=0.292]
+								Epoch 40: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=3.27, categorical_accuracy=0.29] 
+								Epoch 41: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=3.19, categorical_accuracy=0.302]
+								Epoch 42: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=3.29, categorical_accuracy=0.289]
+								Epoch 43: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=3.36, categorical_accuracy=0.322]
+								Epoch 44: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.47, categorical_accuracy=0.316]
+								Epoch 45: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=3.42, categorical_accuracy=0.311]
+								Epoch 46: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=3.15, categorical_accuracy=0.289]
+								Epoch 47: 100%|██████████| 60/60 [00:31<00:00,  1.91it/s, loss=3.29, categorical_accuracy=0.313]
+								Epoch 48: 100%|██████████| 60/60 [00:31<00:00,  1.93it/s, loss=3.18, categorical_accuracy=0.318]
+								Epoch 49: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=3.01, categorical_accuracy=0.305]
+								Epoch 50: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.95, categorical_accuracy=0.302]
+								Epoch 51: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.58, categorical_accuracy=0.313]
+								Epoch 52: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=3.07, categorical_accuracy=0.331]
+								Epoch 53: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=3.12, categorical_accuracy=0.292]
+								Epoch 54: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=3.27, categorical_accuracy=0.313]
+								Epoch 55: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.98, categorical_accuracy=0.308]
+								Epoch 56: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=3.23, categorical_accuracy=0.312]
+								Epoch 57: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=3.13, categorical_accuracy=0.299]
+								Epoch 58: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.97, categorical_accuracy=0.314]
+								Epoch 59: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=3.22, categorical_accuracy=0.324]
+								Epoch 60: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=2.6, categorical_accuracy=0.332] 
+								Epoch 61: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.96, categorical_accuracy=0.312]
+								Epoch 62: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=3.08, categorical_accuracy=0.328]
+								Epoch 63: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=3.11, categorical_accuracy=0.29] 
+								Epoch 64: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=3.7, categorical_accuracy=0.323] 
+								Epoch 65: 100%|██████████| 60/60 [00:31<00:00,  1.93it/s, loss=2.9, categorical_accuracy=0.343] 
+								Epoch 66: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=3.18, categorical_accuracy=0.324]
+								Epoch 67: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.92, categorical_accuracy=0.335]
+								Epoch 68: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=3.03, categorical_accuracy=0.311]
+								Epoch 69: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.71, categorical_accuracy=0.3]  
+								Epoch 70: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.86, categorical_accuracy=0.326]
+								Epoch 71: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=3, categorical_accuracy=0.327]   
+								Epoch 72: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.66, categorical_accuracy=0.331]
+								Epoch 73: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=3.38, categorical_accuracy=0.308]
+								Epoch 74: 100%|██████████| 60/60 [00:31<00:00,  1.91it/s, loss=2.77, categorical_accuracy=0.315]
+								Epoch 75: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.67, categorical_accuracy=0.326]
+								Epoch 76: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.81, categorical_accuracy=0.325] 
+								Epoch 77: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.61, categorical_accuracy=0.324]
+								Epoch 78: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=2.93, categorical_accuracy=0.302]
+								Epoch 79: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=3.11, categorical_accuracy=0.326]
+								Epoch 80: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=3.05, categorical_accuracy=0.333]
+								Epoch 81: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=2.8, categorical_accuracy=0.324] 
+								Epoch 82: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.9, categorical_accuracy=0.34]  
+								Epoch 83: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=3.34, categorical_accuracy=0.304]
+								Epoch 84: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.27, categorical_accuracy=0.344]
+								Epoch 85: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.69, categorical_accuracy=0.341]
+								Epoch 86: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.58, categorical_accuracy=0.343]
+								Epoch 87: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=2.31, categorical_accuracy=0.34] 
+								Epoch 88: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=2.96, categorical_accuracy=0.322]
+								Epoch 89: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=2.5, categorical_accuracy=0.332] 
+								Epoch 90: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=2.8, categorical_accuracy=0.333] 
+								Epoch 91: 100%|██████████| 60/60 [00:33<00:00,  1.81it/s, loss=2.67, categorical_accuracy=0.337]
+								Epoch 92: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.56, categorical_accuracy=0.358]
+								Epoch 93: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=3.14, categorical_accuracy=0.322]
+								Epoch 94: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.95, categorical_accuracy=0.332]
+								Epoch 95: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.86, categorical_accuracy=0.354]
+								Epoch 96: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=3.1, categorical_accuracy=0.332] 
+								Epoch 97: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=2.56, categorical_accuracy=0.326]
+								Epoch 98: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.73, categorical_accuracy=0.353]
+								Epoch 99: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=3.04, categorical_accuracy=0.324]
+								Epoch 100: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.53, categorical_accuracy=0.33] 
+								Epoch 101: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=2.56, categorical_accuracy=0.351]
+								Epoch 102: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.66, categorical_accuracy=0.324]
+								Epoch 103: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.6, categorical_accuracy=0.336] 
+								Epoch 104: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.56, categorical_accuracy=0.338]
+								Epoch 105: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=2.75, categorical_accuracy=0.364]
+								Epoch 106: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.41, categorical_accuracy=0.345]
+								Epoch 107: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.52, categorical_accuracy=0.331]
+								Epoch 108: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.78, categorical_accuracy=0.338]
+								Epoch 109: 100%|██████████| 60/60 [00:32<00:00,  1.82it/s, loss=2.56, categorical_accuracy=0.342]
+								Epoch 110: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.13, categorical_accuracy=0.358]
+								Epoch 111: 100%|██████████| 60/60 [00:31<00:00,  1.91it/s, loss=2.61, categorical_accuracy=0.355]
+								Epoch 112: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.18, categorical_accuracy=0.353]
+								Epoch 113: 100%|██████████| 60/60 [00:32<00:00,  1.82it/s, loss=2.46, categorical_accuracy=0.343]
+								Epoch 114: 100%|██████████| 60/60 [00:33<00:00,  1.80it/s, loss=2.48, categorical_accuracy=0.343]
+								Epoch 115: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=2.85, categorical_accuracy=0.35] 
+								Epoch 116: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=2.22, categorical_accuracy=0.368]
+								Epoch 117: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.7, categorical_accuracy=0.338] 
+								Epoch 118: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.6, categorical_accuracy=0.351] 
+								Epoch 119: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.8, categorical_accuracy=0.347] 
+								Epoch 120: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.52, categorical_accuracy=0.369]
+								Epoch 121: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.54, categorical_accuracy=0.337]
+								Epoch 122: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=2.23, categorical_accuracy=0.353]
+								Epoch 123: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=2.67, categorical_accuracy=0.36] 
+								Epoch 124: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.83, categorical_accuracy=0.358]
+								Epoch 125: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.7, categorical_accuracy=0.343] 
+								Epoch 126: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.75, categorical_accuracy=0.342]
+								Epoch 127: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.63, categorical_accuracy=0.342]
+								Epoch 128: 100%|██████████| 60/60 [00:32<00:00,  1.82it/s, loss=2.36, categorical_accuracy=0.365]
+								Epoch 129: 100%|██████████| 60/60 [00:30<00:00,  1.94it/s, loss=2.81, categorical_accuracy=0.373]
+								Epoch 130: 100%|██████████| 60/60 [00:33<00:00,  1.81it/s, loss=2.86, categorical_accuracy=0.35] 
+								Epoch 131: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.55, categorical_accuracy=0.366]
+								Epoch 132: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.35, categorical_accuracy=0.361]
+								Epoch 133: 100%|██████████| 60/60 [00:32<00:00,  1.82it/s, loss=2.52, categorical_accuracy=0.347]
+								Epoch 134: 100%|██████████| 60/60 [00:31<00:00,  1.91it/s, loss=2.28, categorical_accuracy=0.367]
+								Epoch 135: 100%|██████████| 60/60 [00:31<00:00,  1.91it/s, loss=2.46, categorical_accuracy=0.373] 
+								Epoch 136: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=2.4, categorical_accuracy=0.343] 
+								Epoch 137: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.52, categorical_accuracy=0.348]
+								Epoch 138: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=2.19, categorical_accuracy=0.334]
+								Epoch 139: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=2.44, categorical_accuracy=0.348]
+								Epoch 140: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=2.43, categorical_accuracy=0.342]
+								Epoch 141: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.33, categorical_accuracy=0.363]
+								Epoch 142: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=2.5, categorical_accuracy=0.34]  
+								Epoch 143: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=2.47, categorical_accuracy=0.367]
+								Epoch 144: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.23, categorical_accuracy=0.342]
+								Epoch 145: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=2.19, categorical_accuracy=0.385]
+								Epoch 146: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=2.33, categorical_accuracy=0.361]
+								Epoch 147: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=2.04, categorical_accuracy=0.355]
+								Epoch 148: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.03, categorical_accuracy=0.357]
+								Epoch 149: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.09, categorical_accuracy=0.356]
+								Epoch 150: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.21, categorical_accuracy=0.359]
+								Epoch 151: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=2.03, categorical_accuracy=0.366]
+								Epoch 152: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.96, categorical_accuracy=0.386] 
+								Epoch 153: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=2.11, categorical_accuracy=0.355]
+								Epoch 154: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.49, categorical_accuracy=0.364]
+								Epoch 155: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=1.59, categorical_accuracy=0.358]
+								Epoch 156: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.46, categorical_accuracy=0.39] 
+								Epoch 157: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=1.48, categorical_accuracy=0.374]
+								Epoch 158: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=1.47, categorical_accuracy=0.363]
+								Epoch 159: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=1.44, categorical_accuracy=0.382]
+								Epoch 160: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=1.48, categorical_accuracy=0.375]
+								Epoch 161: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.46, categorical_accuracy=0.392]
+								Epoch 162: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.49, categorical_accuracy=0.366]
+								Epoch 163: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=1.48, categorical_accuracy=0.366]
+								Epoch 164: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=1.52, categorical_accuracy=0.379]
+								Epoch 165: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.44, categorical_accuracy=0.394]
+								Epoch 166: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=1.49, categorical_accuracy=0.387]
+								Epoch 167: 100%|██████████| 60/60 [00:31<00:00,  1.92it/s, loss=1.46, categorical_accuracy=0.383]
+								Epoch 168: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=1.46, categorical_accuracy=0.37] 
+								Epoch 169: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.48, categorical_accuracy=0.371]
+								Epoch 170: 100%|██████████| 60/60 [00:31<00:00,  1.89it/s, loss=1.45, categorical_accuracy=0.377] 
+								Epoch 171: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=1.46, categorical_accuracy=0.371]
+								Epoch 172: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.45, categorical_accuracy=0.386]
+								Epoch 173: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=1.44, categorical_accuracy=0.389]
+								Epoch 174: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.46, categorical_accuracy=0.382]
+								Epoch 175: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=1.44, categorical_accuracy=0.395]
+								Epoch 176: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=1.46, categorical_accuracy=0.388]
+								Epoch 177: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.44, categorical_accuracy=0.392]
+								Epoch 178: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.45, categorical_accuracy=0.395]
+								Epoch 179: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=1.44, categorical_accuracy=0.401]
+								Epoch 180: 100%|██████████| 60/60 [00:32<00:00,  1.82it/s, loss=1.46, categorical_accuracy=0.396]
+								Epoch 181: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.44, categorical_accuracy=0.383]
+								Epoch 182: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=1.45, categorical_accuracy=0.376]
+								Epoch 183: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=1.47, categorical_accuracy=0.368]
+								Epoch 184: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.44, categorical_accuracy=0.4]  
+								Epoch 185: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=1.44, categorical_accuracy=0.385]
+								Epoch 186: 100%|██████████| 60/60 [00:32<00:00,  1.83it/s, loss=1.44, categorical_accuracy=0.388]
+								Epoch 187: 100%|██████████| 60/60 [00:32<00:00,  1.85it/s, loss=1.43, categorical_accuracy=0.402]
+								Epoch 188: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.43, categorical_accuracy=0.411]
+								Epoch 189: 100%|██████████| 60/60 [00:32<00:00,  1.86it/s, loss=1.44, categorical_accuracy=0.398]
+								Epoch 190: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.42, categorical_accuracy=0.395]
+								Epoch 191: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.47, categorical_accuracy=0.389]
+								Epoch 192: 100%|██████████| 60/60 [00:32<00:00,  1.84it/s, loss=1.42, categorical_accuracy=0.406]
+								Epoch 193: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.43, categorical_accuracy=0.401]
+								Epoch 194: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.43, categorical_accuracy=0.392]
+								Epoch 195: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.47, categorical_accuracy=0.387]
+								Epoch 196: 100%|██████████| 60/60 [00:31<00:00,  1.91it/s, loss=1.42, categorical_accuracy=0.405]
+								Epoch 197: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=1.46, categorical_accuracy=0.381]
+								Epoch 198: 100%|██████████| 60/60 [00:32<00:00,  1.87it/s, loss=1.46, categorical_accuracy=0.394]
+								Epoch 199: 100%|██████████| 60/60 [00:31<00:00,  1.90it/s, loss=1.41, categorical_accuracy=0.402]
+								Epoch 200: 100%|██████████| 60/60 [00:31<00:00,  1.88it/s, loss=1.41, categorical_accuracy=0.405] 
+								Finished.
+							</script>
+						</code>
+					</pre>
+				</section>
+				<section>
+					<h3>Time to modify</h3>
+					<h1>👷</h1>
+				</section>
+				<section>
+					<div class="r-stack">
+						<pre class="fragment">
+							<code class="python" data-trim contenteditable style="font-size: 18px;">
+								torch.device="cuda"
+								x.double().cuda()
+							</code>
+						</pre>
+						<pre class="fragment">
+							<code class="python" data-trim contenteditable style="font-size: 18px;">
+								torch.device="cpu"
+								x.double()
+							</code>
+						</pre>
+					</div>
+				</section>
+				<section>
+					<div class="r-stack">
+						<pre class="fragment current-visible">
+							<code class="python" data-trim contenteditable style="font-size: 18px;">
+								query_images = k_images
+								for image in query_images:
+									load(image)
+							</code>
+						</pre>
+						<pre class="fragment current-visible">
+							<code class="python" data-trim contenteditable style="font-size: 18px;">
+								query_images = 1
+
+								load("custom_image.png")
+							</code>
+						</pre>
+					</div>
+				</section>
+				<section>
+					<h3>Testing time 👏 👏 👏</h3>
+				</section>
+				<section>
+					<img src="images/ArcadianCharacter01.jpg" style="object-fit: contain; height: 40vh">
+				</section>
+				<section>
+					<pre>
+						<code class="python" data-trim data-line-numbers="|26|31-43|45-54|62|76-77|108-111|129|153" contenteditable style="font-size: 18px;">
+							import numpy as np
+							from PIL import Image
+							import torch
+							import argparse
+							import os
+							from torchvision import transforms
+							import pprint as pp
+							
+							import matplotlib.pyplot as plt
+							import pandas as pd
+							from torch.optim import Adam
+							from torch.utils.data import DataLoader
+							import cv2
+							
+							from config import PATH
+							from few_shot.callbacks import *
+							from few_shot.core import EvaluateFewShot, NShotTaskSampler, prepare_nshot_task
+							from few_shot.datasets import MiniImageNet, OmniglotDataset
+							from few_shot.metrics import categorical_accuracy
+							from few_shot.models import get_few_shot_encoder
+							from few_shot.proto import proto_net_episode
+							from few_shot.train import fit
+							from few_shot.utils import setup_dirs
+							
+							setup_dirs()
+							device = torch.device('cpu')
+							
+							###########
+							# Dataset #
+							###########
+							images = []
+							
+							for root, folders, files in os.walk('data_custom/logos/'):
+								if len(files) == 0:
+									continue
+							
+								class_name = root.split('/')[-1]
+							
+								for f in files:
+									images.append({
+										'class_name': class_name,
+										'filepath': os.path.join(root, f)
+									})
+							
+							df = pd.DataFrame(images)
+							
+							df = df.assign(id=df.index.values)
+							
+							unique_characters = sorted(df['class_name'].unique())
+							class_name_to_id = {
+								unique_characters[i]: i for i in range(len(df['class_name'].unique()))}
+							
+							df = df.assign(class_id=df['class_name'].apply(
+								lambda c: class_name_to_id[c]))
+							
+							#########
+							# Model #
+							#########
+							
+							# HAVE TO CHANGE TO LOAD FROM MODELS
+							model = get_few_shot_encoder(3)
+							model.load_state_dict(torch.load("models/proto_nets/logos_nt=1_kt=4_qt=2_nv=1_kv=1_qv=1.pth", map_location=torch.device('cpu')))
+							model.eval()
+							model.to(device, dtype=torch.double)
+							
+							
+							############
+							# Prepare  #
+							############
+							
+							n_train = 1
+							# All the classes
+							k_train = len(df['class_name'].unique())
+							q_train = 0
+							
+							optimiser = Adam(model.parameters(), lr=1e-3)
+							loss_fn = torch.nn.NLLLoss().cuda()
+							
+							
+							def getimage(filepath: str):
+								instance = Image.open(filepath)
+								instance = transforms.Compose([
+									transforms.CenterCrop(200),
+									transforms.Resize(84),
+									transforms.ToTensor(),
+									# transforms.Normalize(mean=[0.485, 0.456, 0.406],
+									#                      std=[0.229, 0.224, 0.225])
+								])(instance)
+							
+								return instance
+							
+							for i in range(0, 10):
+								batch_images = []
+								batch_id = []
+							
+								# Get support images
+								support_k = {k: None for k in range(0, k_train)}
+								for k in range(0, k_train):
+									# Select support examples
+									support = df[df['class_id'] == k].sample(1)
+									for i, s in support.iterrows():
+										batch_images.append(getimage(s['filepath']))
+										batch_id.append(s['class_id'])
+							
+								batch = [torch.stack(batch_images), torch.tensor(batch_id)]
+							
+								# Add query image
+								image_to_add = getimage("requestLogo.jpg")
+								image_to_add = torch.unsqueeze(image_to_add, 0)
+								batch[0] = torch.cat((batch[0], image_to_add), 0)
+								batch[1] = torch.cat((batch[1], torch.tensor([2])), 0)
+							
+								# Prepare to launch model
+								x, y = prepare_nshot_task(n_train, k_train, q_train+1)(batch)
+							
+								loss, y_pred = proto_net_episode(
+									model,
+									optimiser,
+									loss_fn,
+									x,
+									y,
+									n_train,
+									k_train,
+									q_train+1,
+									distance='l2',
+									train=False,
+								)
+							
+								model(x)
+							
+								fig, axs = plt.subplots(k_train, 2)
+								# Change size
+								fig.set_size_inches(18.5, 10.5, forward=True)
+							
+								# Adjust with the correlation
+								for image in range(0, k_train):
+									print(y_pred[0][image].item())
+									# x[image] = x[image].mul(y_pred[0][image].item())
+							
+								# Set images with the left being the support and right the query
+							
+								for image in range(0, k_train+1):
+									a = np.array(x[image])
+									# a = a.astype(np.uint16) * 255
+									# a = a[[1,2,0]]
+									a = a.transpose((1, 2, 0))
+									axs[image % k_train][int(image/k_train)].imshow(a)
+								# Remove axis`
+								for axis in axs:
+									for a in axis:
+										a.axis('off')
+							
+								plt.show()
+						</code>
+					</pre>
+				</section>
+				<section>
+					<div class="r-stack">
+						<img class="fragment current-visible" src="images/Varying_classes.jpg" style="object-fit: contain; height: 50vh">
+						<img class="fragment current-visible" src="images/ProtoArc2.jpg" style="object-fit: contain; height: 50vh">
+						<img class="fragment current-visible" src="images/ProtoArc.jpg" style="object-fit: contain; height: 50vh">
+					</div>
+				</section>
+				<section>
+					<h3>Time to modify x2</h3>
+					<h1>👷</h1>
+					<h3>Custom dataset time 👏 👏 👏</h3>
+				</section>
+				<section>
+					<div class="r-stack">
+						<img class="fragment current-visible" src="images/image19.png" style="object-fit: contain; height: 50vh">
+						<img class="fragment current-visible" src="images/image13.png" style="object-fit: contain; height: 50vh">
+						<img class="fragment current-visible" src="images/image17.png" style="object-fit: contain; height: 50vh">
+					</div>
+				</section>
+			</section>
+			<section>
+				<section>
+					<h2>Smash it all together! 🔨</h2>
+				</section>
+				<section>
+					<h4><span class="fragment">Detector</span> + <span class="fragment">Telegram</span> + <span class="fragment">Prototypical</span></h4>
+				</section>
+				<section data-background="https://media3.giphy.com/media/3oKIPE8m8EXTCYEHhS/giphy.gif?cid=6c09b952d3d0b60a3e0fc518a2d2c572c7443f3582e95d5e&rid=giphy.gif&ct=g">
+				</section>
+				<section>
+					<img src="images/logosuc.png" style="object-fit: contain; height: 60vh;">
+				</section>
+			</section>
+			<section>
+				<section>
+					<h2>Conclusion</h2>
+				</section>
+				<section>
+					<h3>We have an application on which anyone can send sticker!</h3>
+					<h3 class="fragment">It will <span class="fragment highlight-green">recognize</span>, <span class="fragment highlight-green">mask</span>, and <span class="fragment highlight-green">classify </span>the sticker!</h3>
+				</section>
+				<section>
+					<h2>What I learned</h2>
+					<h5><span class="fragment">git,</span><span class="fragment"> python,</span><span class="fragment"> numpy arrays,</span><span class="fragment"> pytorch tensors,</span><span class="fragment"> Pillow images,</span><span class="fragment"> pandas dataframes,</span><span class="fragment"> git,</span><span class="fragment"> ssh,</span><span class="fragment"> scp,</span><span class="fragment"> rsync,</span><span class="fragment"> ImageMagick,</span><span class="fragment"> aptitude,</span><span class="fragment"> Heroku,</span><span class="fragment"> Docker,</span><span class="fragment"> Markdown,</span><span class="fragment"> bash,</span><span class="fragment"> Slurm,</span><span class="fragment"> OpenCV,</span><span class="fragment"> VirtualEnv,</span><span class="fragment"> Conda,</span><span class="fragment"> Jupyter Notebooks,</span><span class="fragment"> VSCode.</span> </h5>
+				</section>
+			</section>
+			<section>
+				<section>
+					<h2>Things I would like to improve on</h2>
+				</section>
+				<section>
+					<ul>
+						<li class="fragment">Feedback</li>
+						<li class="fragment">Accuracy, Precision</li>
+						<li class="fragment">Streamlining</li>
+						<li class="fragment">Zero 	shot</li>
+					</ul>
+				</section>
+			</section>
+			<section style="text-align: left;">
+				<h1>THE END</h1>
+			</section>
+
+		</div>
+
+	</div>
+
+	<script src="dist/reveal.js"></script>
+	<script src="plugin/zoom/zoom.js"></script>
+	<script src="plugin/notes/notes.js"></script>
+	<script src="plugin/search/search.js"></script>
+	<script src="plugin/markdown/markdown.js"></script>
+	<script src="plugin/highlight/highlight.js"></script>
+	<script>
+
+		// Also available as an ES module, see:
+		// https://revealjs.com/initialization/
+		Reveal.initialize({
+			controls: true,
+			progress: true,
+			center: true,
+			hash: true,
+
+			// Learn about plugins: https://revealjs.com/plugins/
+			plugins: [RevealZoom, RevealNotes, RevealSearch, RevealMarkdown, RevealHighlight]
+		});
+
+	</script>
+
+</body>
+
+</html>
